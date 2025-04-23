@@ -8,6 +8,11 @@ from datetime import datetime
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+TRANSACTIONS_FILE = 'transacoes.csv'
+# Inicializa arquivo de transações com colunas, se não existir
+if not os.path.exists(TRANSACTIONS_FILE):
+    pd.DataFrame(columns=['data','descricao','valor','tipo','categoria']) \
+       .to_csv(TRANSACTIONS_FILE, index=False, sep=';', encoding='latin1')
 
 @app.route('/')
 def index():
@@ -20,7 +25,6 @@ def upload():
     if not file:
         return redirect(url_for('index', error='Nenhum arquivo enviado.'))
     filename = file.filename.lower()
-
     # --- Processar CSV ---
     if filename.endswith('.csv'):
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
@@ -30,11 +34,13 @@ def upload():
             df.columns = [col.strip().lower() for col in df.columns]
             if 'valor' not in df.columns:
                 return redirect(url_for('index', error='CSV inválido: coluna "valor" não encontrada.'))
-            df.to_csv('transacoes.csv', index=False, sep=';', encoding='latin1')
+            # Garante coluna categoria
+            if 'categoria' not in df.columns:
+                df['categoria'] = ''
+            df.to_csv(TRANSACTIONS_FILE, index=False, sep=';', encoding='latin1')
         except Exception as e:
             return redirect(url_for('index', error='Erro ao processar CSV: ' + str(e)))
         return redirect(url_for('transacoes'))
-
     # --- Processar PDF ---
     elif filename.endswith('.pdf'):
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
@@ -42,23 +48,19 @@ def upload():
         try:
             records = []
             current_date = None
-            # Extrair texto e processar linha a linha
             with pdfplumber.open(filepath) as pdf:
                 for page in pdf.pages:
-                    text = page.extract_text()
-                    if not text:
-                        continue
+                    text = page.extract_text() or ''
                     for line in text.splitlines():
                         line = line.strip()
-                        # Detectar linha de data (e.g., 23/04/2025), sem valor
-                        m_date = re.search(r"(\d{2}/\d{2}/\d{4})", line)
-                        if m_date and 'R$' not in line:
+                        # Detecta data isolada
+                        if re.fullmatch(r"\d{2}/\d{2}/\d{4}", line):
                             try:
-                                current_date = datetime.strptime(m_date.group(1), '%d/%m/%Y')
+                                current_date = datetime.strptime(line, '%d/%m/%Y')
                             except:
                                 current_date = None
                             continue
-                        # Detectar valor R$ e extrair transação
+                        # Detecta valor e extrai
                         m_val = re.search(r"R\$\s*([\d\.,]+)", line)
                         if m_val and current_date:
                             val_str = m_val.group(1)
@@ -74,29 +76,59 @@ def upload():
                                 'data': current_date.strftime('%d/%m/%Y'),
                                 'descricao': desc,
                                 'valor': valor,
-                                'tipo': tipo
+                                'tipo': tipo,
+                                'categoria': ''
                             })
             if not records:
                 return redirect(url_for('index', error='PDF processado, mas nenhuma transação encontrada.'))
             df = pd.DataFrame(records)
-            df.to_csv('transacoes.csv', index=False, sep=';', encoding='latin1')
+            df.to_csv(TRANSACTIONS_FILE, index=False, sep=';', encoding='latin1')
         except Exception as e:
             return redirect(url_for('index', error='Erro ao processar PDF: ' + str(e)))
         return redirect(url_for('transacoes'))
-
-    # Formato não suportado
     else:
         return redirect(url_for('index', error='Formato não suportado. Envie CSV ou PDF.'))
 
+@app.route('/adicionar', methods=['GET', 'POST'])
+def adicionar():
+    if request.method == 'POST':
+        # Dados do formulário
+        vencimento = request.form.get('vencimento')  # formato yyyy-mm-dd
+        descricao = request.form.get('descricao')
+        valor = request.form.get('valor')
+        categoria = request.form.get('categoria')
+        # Converte data para DD/MM/YYYY
+        try:
+            dt = datetime.strptime(vencimento, '%Y-%m-%d')
+            data_str = dt.strftime('%d/%m/%Y')
+        except:
+            data_str = vencimento
+        # Converte valor
+        try:
+            valor_num = float(valor.replace(',', '.'))
+        except:
+            valor_num = 0.0
+        # Insere como despesa (valor negativo)
+        df = pd.read_csv(TRANSACTIONS_FILE, sep=';', encoding='latin1')
+        new_record = {
+            'data': data_str,
+            'descricao': descricao,
+            'valor': -abs(valor_num),
+            'tipo': 'Saída',
+            'categoria': categoria
+        }
+        df = df.append(new_record, ignore_index=True)
+        df.to_csv(TRANSACTIONS_FILE, index=False, sep=';', encoding='latin1')
+        return redirect(url_for('transacoes'))
+    return render_template('adicionar.html')
+
 @app.route('/transacoes')
 def transacoes():
-    if not os.path.exists('transacoes.csv'):
+    if not os.path.exists(TRANSACTIONS_FILE):
         return redirect(url_for('index', error='Antes de ver transações, faça upload de um CSV/PDF válido.'))
     try:
-        df = pd.read_csv('transacoes.csv', sep=';', encoding='latin1')
+        df = pd.read_csv(TRANSACTIONS_FILE, sep=';', encoding='latin1')
         df.columns = [col.strip().lower() for col in df.columns]
-        if 'valor' not in df.columns:
-            return redirect(url_for('index', error='CSV interno inválido: coluna "valor" não encontrada.'))
         df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0.0)
     except Exception as e:
         return redirect(url_for('index', error='Erro ao ler transações: ' + str(e)))
