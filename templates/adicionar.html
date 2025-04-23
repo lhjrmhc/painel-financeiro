@@ -22,7 +22,16 @@
     </div>
     <div class="mb-3">
       <label>Categoria:</label>
-      <input type="text" name="categoria" class="form-control" required>
+      <<div class="mb-3">
+  <label>Categoria:</label>
+  <select name="categoria" class="form-select" required>
+    <option value="" disabled selected>Selecione...</option>
+    {% for cat in categories %}
+      <option value="{{ cat }}">{{ cat }}</option>
+    {% endfor %}
+  </select>
+</div>
+
     </div>
     <button type="submit" class="btn btn-success">Adicionar Despesa</button>
     <a href="/" class="btn btn-secondary">Voltar</a>

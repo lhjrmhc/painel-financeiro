@@ -5,10 +5,18 @@ import re
 import pdfplumber
 from datetime import datetime
 
+# Categorias pré-estabelecidas
+CATEGORIES = [
+    "Receita: Crédito", "Receita: Débito", "Receita: Pix", "Receita: Dinheiro", "Receita: Convênio",
+    "Custo Fixo: Pró-labore", "Custo Fixo: Salários", "Custo Fixo: Aluguel", "Custo Fixo: Energia elétrica", "Custo Fixo: Internet", "Custo Fixo: Celular", "Custo Fixo: Sabesp", "Custo Fixo: Contabilidade", "Custo Fixo: Vale transporte", "Custo Fixo: Sistema",
+    "Custo Variável: Plantonista", "Custo Variável: Terceiros", "Custo Variável: Limpeza", "Custo Variável: Material Escritório", "Custo Variável: Material Limpeza", "Custo Variável: Impostos", "Custo Variável: Manutenção predial",
+    "Investimentos/Aquisições: Equipamentos Internação", "Investimentos/Aquisições: Equipamentos Consultórios"
+]
+
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 TRANSACTIONS_FILE = 'transacoes.csv'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Inicializa arquivo de transações com colunas, se não existir
 if not os.path.exists(TRANSACTIONS_FILE):
     pd.DataFrame(columns=['data','descricao','valor','tipo','categoria']) \
@@ -25,7 +33,7 @@ def upload():
     if not file:
         return redirect(url_for('index', error='Nenhum arquivo enviado.'))
     filename = file.filename.lower()
-    # --- Processar CSV ---
+    # Processar CSV
     if filename.endswith('.csv'):
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
         file.save(filepath)
@@ -34,14 +42,13 @@ def upload():
             df.columns = [col.strip().lower() for col in df.columns]
             if 'valor' not in df.columns:
                 return redirect(url_for('index', error='CSV inválido: coluna "valor" não encontrada.'))
-            # Garante coluna categoria
             if 'categoria' not in df.columns:
                 df['categoria'] = ''
             df.to_csv(TRANSACTIONS_FILE, index=False, sep=';', encoding='latin1')
         except Exception as e:
             return redirect(url_for('index', error='Erro ao processar CSV: ' + str(e)))
         return redirect(url_for('transacoes'))
-    # --- Processar PDF ---
+    # Processar PDF
     elif filename.endswith('.pdf'):
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
         file.save(filepath)
@@ -63,8 +70,7 @@ def upload():
                         # Detecta valor e extrai
                         m_val = re.search(r"R\$\s*([\d\.,]+)", line)
                         if m_val and current_date:
-                            val_str = m_val.group(1)
-                            num = val_str.replace('.', '').replace(',', '.')
+                            num = m_val.group(1).replace('.', '').replace(',', '.')
                             try:
                                 valor = float(num)
                             except:
@@ -92,35 +98,31 @@ def upload():
 @app.route('/adicionar', methods=['GET', 'POST'])
 def adicionar():
     if request.method == 'POST':
-        # Dados do formulário
-        vencimento = request.form.get('vencimento')  # formato yyyy-mm-dd
+        vencimento = request.form.get('vencimento')
         descricao = request.form.get('descricao')
         valor = request.form.get('valor')
         categoria = request.form.get('categoria')
-        # Converte data para DD/MM/YYYY
         try:
             dt = datetime.strptime(vencimento, '%Y-%m-%d')
             data_str = dt.strftime('%d/%m/%Y')
         except:
             data_str = vencimento
-        # Converte valor
         try:
             valor_num = float(valor.replace(',', '.'))
         except:
             valor_num = 0.0
-        # Insere como despesa (valor negativo)
         df = pd.read_csv(TRANSACTIONS_FILE, sep=';', encoding='latin1')
-        new_record = {
+        new_df = pd.concat([df, pd.DataFrame([{
             'data': data_str,
             'descricao': descricao,
             'valor': -abs(valor_num),
             'tipo': 'Saída',
             'categoria': categoria
-        }
-        df = df.append(new_record, ignore_index=True)
-        df.to_csv(TRANSACTIONS_FILE, index=False, sep=';', encoding='latin1')
+        }])], ignore_index=True)
+        new_df.to_csv(TRANSACTIONS_FILE, index=False, sep=';', encoding='latin1')
         return redirect(url_for('transacoes'))
-    return render_template('adicionar.html')
+    # Passa categorias para template
+    return render_template('adicionar.html', categories=CATEGORIES)
 
 @app.route('/transacoes')
 def transacoes():
