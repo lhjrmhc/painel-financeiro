@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Transações Financeiras</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container py-5">
+  <h1 class="mb-4">Resumo Financeiro</h1>
+  <div class="mb-4">
+    <p><strong>Total Receita:</strong> R$ {{ total_receita:,.2f }}</p>
+    <p><strong>Total Despesas:</strong> R$ {{ total_despesa:,.2f }}</p>
+    <p><strong>Lucro Líquido:</strong> R$ {{ lucro:,.2f }}</p>
+  </div>
+  <h2 class="mb-3">Transações</h2>
+  {{ tables|safe }}
+</body>
+</html>
