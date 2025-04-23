@@ -42,24 +42,32 @@ def upload():
         try:
             records = []
             current_date = None
+            # Extrair texto e processar linha a linha
             with pdfplumber.open(filepath) as pdf:
                 for page in pdf.pages:
-                    lines = page.extract_text().splitlines()
-                    for line in lines:
+                    text = page.extract_text()
+                    if not text:
+                        continue
+                    for line in text.splitlines():
                         line = line.strip()
-                        # Detecta linha de data no formato DD/MM/YYYY
-                        if re.fullmatch(r"\d{2}/\d{2}/\d{4}", line):
-                            current_date = datetime.strptime(line, '%d/%m/%Y')
+                        # Detectar linha de data (e.g., 23/04/2025), sem valor
+                        m_date = re.search(r"(\d{2}/\d{2}/\d{4})", line)
+                        if m_date and 'R$' not in line:
+                            try:
+                                current_date = datetime.strptime(m_date.group(1), '%d/%m/%Y')
+                            except:
+                                current_date = None
                             continue
-                        # Detecta valor R$ ...
-                        m = re.search(r"R\$\s*([\d\.]+,\d{2})", line)
-                        if m and current_date:
-                            val_str = m.group(1)
+                        # Detectar valor R$ e extrair transação
+                        m_val = re.search(r"R\$\s*([\d\.,]+)", line)
+                        if m_val and current_date:
+                            val_str = m_val.group(1)
                             num = val_str.replace('.', '').replace(',', '.')
-                            valor = float(num)
-                            # Descrição: tudo antes do R$
-                            desc = line[:m.start()].strip()
-                            # Remover símbolos estranhos
+                            try:
+                                valor = float(num)
+                            except:
+                                continue
+                            desc = line[:m_val.start()].strip()
                             desc = re.sub(r"^[^A-Za-z0-9]+", '', desc)
                             tipo = 'Entrada' if valor > 0 else 'Saída'
                             records.append({
