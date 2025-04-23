@@ -7,6 +7,11 @@
 </head>
 <body class="container py-5">
   <h1 class="mb-4">Upload de Extrato Bancário</h1>
+{% if error %}
+<div class="alert alert-danger" role="alert">
+  {{ error }}
+</div>
+{% endif %}
   <form action="/upload" method="post" enctype="multipart/form-data">
     <div class="mb-3">
       <input type="file" name="file" accept=".csv" class="form-control" required>
