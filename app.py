@@ -11,7 +11,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @app.route('/')
 def index():
-    # Captura mensagem de erro (se enviada por query string)
     error = request.args.get('error')
     return render_template('index.html', error=error)
 
@@ -21,7 +20,8 @@ def upload():
     if not file:
         return redirect(url_for('index', error='Nenhum arquivo enviado.'))
     filename = file.filename.lower()
-    # Processar CSV
+
+    # --- Processar CSV ---
     if filename.endswith('.csv'):
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
         file.save(filepath)
@@ -34,38 +34,40 @@ def upload():
         except Exception as e:
             return redirect(url_for('index', error='Erro ao processar CSV: ' + str(e)))
         return redirect(url_for('transacoes'))
-    # Processar PDF
+
+    # --- Processar PDF ---
     elif filename.endswith('.pdf'):
         filepath = os.path.join(UPLOAD_FOLDER, file.filename)
         file.save(filepath)
         try:
-            # Extrair texto do PDF
-            text = ''
+            records = []
+            current_date = None
             with pdfplumber.open(filepath) as pdf:
                 for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + '\n'
-            # Regex para linhas de transação (data, descrição, valor)
-            matches = re.findall(r"(\d{2}/\d{2}/\d{4})\s+(.*?)\s+R\$\s*([\d\.]+,\d{2})", text)
-            records = []
-            for date_str, desc, val_str in matches:
-                # Converter data e valor
-                try:
-                    date = datetime.strptime(date_str, '%d/%m/%Y')
-                except:
-                    continue
-                # Normalizar valor
-                num = val_str.replace('.', '').replace(',', '.')
-                valor = float(num)
-                # Determinar tipo
-                tipo = 'Entrada' if valor > 0 else 'Saída'
-                records.append({
-                    'data': date,
-                    'descricao': desc.strip(),
-                    'valor': valor,
-                    'tipo': tipo
-                })
+                    lines = page.extract_text().splitlines()
+                    for line in lines:
+                        line = line.strip()
+                        # Detecta linha de data no formato DD/MM/YYYY
+                        if re.fullmatch(r"\d{2}/\d{2}/\d{4}", line):
+                            current_date = datetime.strptime(line, '%d/%m/%Y')
+                            continue
+                        # Detecta valor R$ ...
+                        m = re.search(r"R\$\s*([\d\.]+,\d{2})", line)
+                        if m and current_date:
+                            val_str = m.group(1)
+                            num = val_str.replace('.', '').replace(',', '.')
+                            valor = float(num)
+                            # Descrição: tudo antes do R$
+                            desc = line[:m.start()].strip()
+                            # Remover símbolos estranhos
+                            desc = re.sub(r"^[^A-Za-z0-9]+", '', desc)
+                            tipo = 'Entrada' if valor > 0 else 'Saída'
+                            records.append({
+                                'data': current_date.strftime('%d/%m/%Y'),
+                                'descricao': desc,
+                                'valor': valor,
+                                'tipo': tipo
+                            })
             if not records:
                 return redirect(url_for('index', error='PDF processado, mas nenhuma transação encontrada.'))
             df = pd.DataFrame(records)
@@ -73,6 +75,7 @@ def upload():
         except Exception as e:
             return redirect(url_for('index', error='Erro ao processar PDF: ' + str(e)))
         return redirect(url_for('transacoes'))
+
     # Formato não suportado
     else:
         return redirect(url_for('index', error='Formato não suportado. Envie CSV ou PDF.'))
@@ -83,11 +86,9 @@ def transacoes():
         return redirect(url_for('index', error='Antes de ver transações, faça upload de um CSV/PDF válido.'))
     try:
         df = pd.read_csv('transacoes.csv', sep=';', encoding='latin1')
-        # Normalizar e converter valor
         df.columns = [col.strip().lower() for col in df.columns]
         if 'valor' not in df.columns:
             return redirect(url_for('index', error='CSV interno inválido: coluna "valor" não encontrada.'))
-        df['valor'] = df['valor'].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
         df['valor'] = pd.to_numeric(df['valor'], errors='coerce').fillna(0.0)
     except Exception as e:
         return redirect(url_for('index', error='Erro ao ler transações: ' + str(e)))
